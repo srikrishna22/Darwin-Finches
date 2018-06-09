@@ -1,0 +1,220 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+#load data
+fb_1975 = pd.read_csv('/Users/krishna/Desktop/finch_beaks_1975.csv')
+fb_2012 = pd.read_csv('/Users/krishna/Desktop/finch_beaks_2012.csv')
+fb_depth = pd.read_csv('/Users/krishna/Desktop/fortis_beak_depth_heredity.csv')
+
+#reformating data
+fb_1975.rename(columns={'Beak length, mm': 'blength', 'Beak depth, mm' : 'bdepth'}, inplace=True)
+fb_1975['Year'] = 1975
+fb_2012['Year'] = 2012
+
+finch_beaks = pd.concat([fb_1975, fb_2012], axis=0)
+
+fb_75 = finch_beaks.bdepth[finch_beaks.Year == 1975]
+fb_12 = finch_beaks.bdepth[finch_beaks.Year == 2012]
+
+#set plotting style to seaborn style
+sns.set()
+
+
+#Swarm plots of finch beaks in 1975 and 2012
+sns.swarmplot('Year', 'bdepth', data=finch_beaks)
+
+#define ecdf function
+def ecdf(data):
+    """Compute an ECDF from 1-D array of data"""
+    
+    n = len(data)
+    
+    x = np.sort(data)
+    
+    y = np.arange(1, n+1) / n
+    
+    return x, y
+    
+
+#create ecdf plots for bdepth for year of measurement 
+x_1975, y_1975 = ecdf(fb_75)
+x_2012, y_2012 = ecdf(fb_12)
+
+
+plt.plot(x_1975, y_1975, marker='.', linestyle = 'none')
+plt.plot(x_2012, y_2012, marker='.', linestyle = 'none')
+plt.margins(0.02)
+
+plt.xlabel('beak depth mm')
+plt.ylabel('ECDF')
+plt.legend(('2012', '1975'), loc='lower right')
+
+
+#function definitions for bootstraping
+def bootstrap_replicate_1d(data, func):
+    return func(np.random.choice(data, size=len(data)))
+    
+def draw_bs_reps(data, func, size=1):
+    """Draw bootstrap replicates."""
+    
+    bs_replicates = np.empty(size)
+    
+    for i in range(size):
+        bs_replicates[i] = bootstrap_replicate_1d(data, func)
+    
+    return bs_replicates
+
+
+# Mean difference from data
+
+mean_diff = np.mean(fb_12) - np.mean(fb_75)
+
+# Means of bootstrap replicates
+bs_replicates_1975 = draw_bs_reps(fb_75, np.mean, 10000)
+bs_replicates_2012 = draw_bs_reps(fb_12, np.mean, 10000)
+
+# differences in bs_diff_replicates
+bs_diff_replicates = bs_replicates_2012 - bs_replicates_1975
+
+# 95% confidence interval
+conf_int = np.percentile(bs_diff_replicates, [2.5, 97.5])
+
+
+# Hypothesis test: Are beaks deeper in 2012?
+
+combined_mean = np.mean(np.concatenate((fb_75, fb_12)))
+
+bd_75_shift = fb_75 - np.mean(fb_75) + combined_mean
+bd_12_shift = fb_12 - np.mean(fb_12) + combined_mean
+
+bs_rep_75 = draw_bs_reps(bd_75_shift, np.mean, 10000)
+bs_rep_12 = draw_bs_reps(bd_12_shift, np.mean, 10000)
+
+# Compute replicates of difference of means: bs_diff_replicates
+bs_diff_replicates = bs_rep_12 - bs_rep_75
+
+# Compute the p-value: p
+p = np.sum(bs_diff_replicates >= mean_diff) / len(bs_diff_replicates)
+
+
+# Beak analysis
+
+# formating data
+fbl_75 = finch_beaks.blength[finch_beaks.Year == 1975]
+fbl_12 = finch_beaks.blength[finch_beaks.Year == 2012]
+fbd_75 = fb_75
+fbd_12 = fb_12
+
+#plots
+plt.plot(fbl_75, fbd_75, marker='.', color='blue', alpha=0.5, linestyle='none')
+plt.plot(fbl_12, fbd_12, marker='.', color='red', alpha=0.5, linestyle='none')
+plt.xlabel('beak length (mm)')
+plt.ylabel('beak depth (mm)')
+plt.legend(('1975', '2012'), loc='lower right')
+plt.show()
+
+
+def draw_bs_pairs_linreg(x, y, size=1):
+    """Perform pairs bootstrap for linear regression."""
+
+    # Set up array of indices
+    inds = np.arange(len(x))
+
+    # Initialize replicates
+    bs_slope_reps = np.empty(size)
+    bs_intercept_reps = np.empty(size)
+
+    # Generate replicates
+    for i in range(size):
+        bs_inds = np.random.choice(inds, size=len(inds))
+        bs_x, bs_y = x[bs_inds], y[bs_inds]
+        bs_slope_reps[i], bs_intercept_reps[i] = np.polyfit(bs_x, bs_y, 1)
+
+    return bs_slope_reps, bs_intercept_reps
+
+# Compute the linear regressions
+slope_1975, intercept_1975 = np.polyfit(fbl_75, fbd_75, 1)
+slope_2012, intercept_2012 = np.polyfit(fbl_12, fbd_12, 1)
+
+# Perform pairs bootstrap for the linear regressions
+bs_slope_reps_1975, bs_intercept_reps_1975 = \
+        draw_bs_pairs_linreg(fbl_75, fbd_75, 1000)
+bs_slope_reps_2012, bs_intercept_reps_2012 = \
+        draw_bs_pairs_linreg(fbl_12, fbd_12, 1000)
+
+# Compute confidence intervals of slopes
+slope_conf_int_1975 = np.percentile(bs_slope_reps_1975, [2.5, 97.5])
+slope_conf_int_2012 = np.percentile(bs_slope_reps_2012, [2.5, 97.5])
+intercept_conf_int_1975 = np.percentile(bs_intercept_reps_1975, [2.5, 97.5])
+
+intercept_conf_int_2012 = np.percentile(bs_intercept_reps_2012, [2.5, 97.5])
+
+
+# Print the results
+print('1975: slope =', slope_1975,
+      'conf int =', slope_conf_int_1975)
+print('1975: intercept =', intercept_1975,
+      'conf int =', intercept_conf_int_1975)
+print('2012: slope =', slope_2012,
+      'conf int =', slope_conf_int_2012)
+print('2012: intercept =', intercept_2012,
+      'conf int =', intercept_conf_int_2012)
+
+
+# Make scatter plot of 1975 data
+_ = plt.plot(fbl_75, fbd_75, marker='.',
+             linestyle='none', color='blue', alpha=0.5)
+
+# Make scatter plot of 2012 data
+_ = plt.plot(fbl_12, fbd_12, marker='.',
+             linestyle='none', color='red', alpha=0.5)
+
+# Label axes and make legend
+_ = plt.xlabel('beak length (mm)')
+_ = plt.ylabel('beak depth (mm)')
+_ = plt.legend(('1975', '2012'), loc='upper left')
+
+# Generate x-values for bootstrap lines: x
+x = np.array([10, 17])
+
+# Plot the bootstrap lines
+for i in range(100):
+    plt.plot(x, bs_slope_reps_1975[i] * x + bs_intercept_reps_1975[i],
+             linewidth=0.5, alpha=0.2, color='blue')
+    plt.plot(x, bs_slope_reps_2012[i] * x + bs_intercept_reps_2012[i],
+             linewidth=0.5, alpha=0.2, color='red')
+
+# Draw the plot again
+plt.show()
+
+
+# Compute length-to-depth ratios
+ratio_1975 = fbl_75 / fbd_75
+ratio_2012 = fbl_12 / fbd_12
+
+# Compute means
+mean_ratio_1975 = np.mean(ratio_1975)
+mean_ratio_2012 = np.mean(ratio_2012)
+
+# Generate bootstrap replicates of the means
+bs_replicates_1975 = draw_bs_reps(ratio_1975, np.mean, size=10000)
+bs_replicates_2012 = draw_bs_reps(ratio_2012, np.mean, size=10000)
+
+# Compute the 99% confidence intervals
+conf_int_1975 = np.percentile(bs_replicates_1975, [0.5, 99.5])
+conf_int_2012 = np.percentile(bs_replicates_2012, [0.5, 99.5])
+
+# Print the results
+print('1975: mean ratio =', mean_ratio_1975,
+      'conf int =', conf_int_1975)
+print('2012: mean ratio =', mean_ratio_2012,
+      'conf int =', conf_int_2012)
+
+
+
+
+
+
+
